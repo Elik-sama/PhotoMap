@@ -9,12 +9,18 @@
 </head>
 <body>
     <div class="sidebar" id="sidebar">
-        <h2>Мои фотографии</h2>
+        <div class="sidebar-header">
+            <h2>Мои фотографии</h2>
+            <button class="close-sidebar" id="close-sidebar">×</button>
+        </div>
         <button id="upload-button">Добавить фото</button>
         <input type="file" id="photo-upload" accept="image/*" multiple hidden />
         <div class="photo-list" id="photo-list"></div>
     </div>
+    
     <div id="map"></div>
+    
+    <button class="menu-button" id="menu-button">☰ Меню</button>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>

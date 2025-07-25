@@ -8,6 +8,9 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 const uploadButton = document.getElementById('upload-button');
 const photoUpload = document.getElementById('photo-upload');
 const photoList = document.getElementById('photo-list');
+const menuButton = document.getElementById('menu-button');
+const closeSidebar = document.getElementById('close-sidebar');
+const sidebar = document.getElementById('sidebar');
 
 // Хранилище для фото и маркеров
 const photos = [];
@@ -111,6 +114,11 @@ function addPhoto(lat, lon, photoUrl, fileName) {
             item.style.background = 'white';
         });
         photoItem.style.background = '#e6f7ff';
+        
+        // На мобильных устройствах скрываем боковую панель после выбора
+        if (window.innerWidth <= 768) {
+            sidebar.classList.remove('active');
+        }
     });
     
     photoList.appendChild(photoItem);
@@ -125,3 +133,28 @@ function addPhoto(lat, lon, photoUrl, fileName) {
         marker: marker
     });
 }
+
+// Управление боковой панелью на мобильных устройствах
+menuButton.addEventListener('click', () => {
+    sidebar.classList.add('active');
+});
+
+closeSidebar.addEventListener('click', () => {
+    sidebar.classList.remove('active');
+});
+
+// Закрытие боковой панели при клике на карту (для мобильных)
+map.on('click', () => {
+    if (window.innerWidth <= 768) {
+        sidebar.classList.remove('active');
+    }
+});
+
+// Адаптация при изменении размера окна
+window.addEventListener('resize', () => {
+    if (window.innerWidth > 768) {
+        sidebar.classList.add('active');
+    } else {
+        sidebar.classList.remove('active');
+    }
+});
