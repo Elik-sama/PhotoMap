@@ -12,13 +12,8 @@ const menuButton = document.getElementById('menu-button');
 const closeSidebar = document.getElementById('close-sidebar');
 const sidebar = document.getElementById('sidebar');
 
-// Хранилище для фото и маркеров
-const photos = [];
-
-// Открытие файлового диалога по кнопке
-uploadButton.addEventListener('click', () => {
-    photoUpload.click();
-});
+// Хранилище для текущих фото
+let currentPhotos = [];
 
 // Обработчик загрузки фото
 photoUpload.addEventListener('change', function(e) {
@@ -31,22 +26,22 @@ photoUpload.addEventListener('change', function(e) {
             const img = new Image();
             
             img.onload = function() {
-                // Чтение EXIF данных
                 EXIF.getData(img, function() {
                     const exifData = EXIF.getAllTags(this);
                     
                     if (exifData?.GPSLatitude && exifData?.GPSLongitude) {
-                        // Конвертация координат из EXIF в градусы
                         const lat = convertExifGps(exifData.GPSLatitude, exifData.GPSLatitudeRef);
                         const lon = convertExifGps(exifData.GPSLongitude, exifData.GPSLongitudeRef);
                         
-                        // Проверка на дубликаты
-                        if (!isDuplicatePhoto(lat, lon)) {
-                            // Добавление маркера и фото в список
-                            addPhoto(lat, lon, event.target.result, file.name);
-                        } else {
-                            alert(`Фото "${file.name}" не было добавлено, так как фото с такими координатами уже существует!`);
-                        }
+                        const photo = {
+                            id: Date.now(), // Уникальный ID для фото
+                            lat: lat,
+                            lon: lon,
+                            url: event.target.result,
+                            name: file.name
+                        };
+                        
+                        addPhoto(photo);
                     } else {
                         alert(`Фото "${file.name}" не содержит геоданных!`);
                     }
@@ -60,81 +55,107 @@ photoUpload.addEventListener('change', function(e) {
     }
 });
 
-// Проверка на дубликаты по координатам
-function isDuplicatePhoto(lat, lon) {
-    // Погрешность в 0.0001 градуса (~11 метров)
-    const precision = 0.0001;
-    
-    return photos.some(photo => {
-        return Math.abs(photo.lat - lat) < precision && 
-               Math.abs(photo.lon - lon) < precision;
-    });
-}
-
-// Конвертация EXIF GPS в десятичные градусы
-function convertExifGps(coords, ref) {
-    const degrees = coords[0] + coords[1]/60 + coords[2]/3600;
-    return (ref === 'S' || ref === 'W') ? -degrees : degrees;
-}
-
 // Добавление фото на карту и в список
-function addPhoto(lat, lon, photoUrl, fileName) {
-    // Создаем уникальный ID для фото
-    const photoId = 'photo-' + Date.now();
-    
+function addPhoto(photo) {
     // Добавляем маркер на карту
-    const marker = L.marker([lat, lon], { 
-        photoId: photoId,
+    const marker = L.marker([photo.lat, photo.lon], {
         riseOnHover: true
     }).addTo(map);
     
     marker.bindPopup(`
         <div class="photo-popup">
-            <img src="${photoUrl}" alt="${fileName}">
-            <p>Координаты: ${lat.toFixed(6)}, ${lon.toFixed(6)}</p>
+            <img src="${photo.url}" alt="${photo.name}">
+            <p>${photo.name}</p>
+            <p>Координаты: ${photo.lat.toFixed(6)}, ${photo.lon.toFixed(6)}</p>
+            <button class="delete-popup" data-id="${photo.id}">Удалить</button>
         </div>
     `);
     
     // Добавляем фото в боковую панель
     const photoItem = document.createElement('div');
     photoItem.className = 'photo-item';
-    photoItem.id = photoId;
+    photoItem.dataset.id = photo.id;
+    
     photoItem.innerHTML = `
-        <img src="${photoUrl}" alt="${fileName}">
-        <p>${fileName}</p>
-        <p>Координаты: ${lat.toFixed(6)}, ${lon.toFixed(6)}</p>
+        <img src="${photo.url}" alt="${photo.name}">
+        <div class="photo-info">
+            <p>${photo.name}</p>
+            <p>Координаты: ${photo.lat.toFixed(6)}, ${photo.lon.toFixed(6)}</p>
+        </div>
+        <button class="delete-photo" title="Удалить фото" data-id="${photo.id}">×</button>
     `;
     
-    // При клике на фото в списке - центрируем карту на этом месте
-    photoItem.addEventListener('click', () => {
-        map.setView([lat, lon], 15);
+    // Обработчик клика по фото
+    photoItem.querySelector('.photo-info').addEventListener('click', () => {
+        map.setView([photo.lat, photo.lon], 15);
         marker.openPopup();
-        // Подсвечиваем выбранный элемент
-        document.querySelectorAll('.photo-item').forEach(item => {
-            item.style.background = 'white';
-        });
-        photoItem.style.background = '#e6f7ff';
+        highlightPhotoItem(photoItem);
         
-        // На мобильных устройствах скрываем боковую панель после выбора
         if (window.innerWidth <= 768) {
             sidebar.classList.remove('active');
         }
     });
     
+    // Обработчик удаления
+    const deleteButton = photoItem.querySelector('.delete-photo');
+    deleteButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removePhoto(photo.id);
+    });
+    
     photoList.appendChild(photoItem);
     
-    // Сохраняем данные о фото
-    photos.push({
-        id: photoId,
-        lat: lat,
-        lon: lon,
-        url: photoUrl,
-        name: fileName,
-        marker: marker
+    // Сохраняем ссылки на элементы для удаления
+    currentPhotos.push({
+        ...photo,
+        marker: marker,
+        element: photoItem
+    });
+    
+    // Обработчик удаления из popup
+    marker.on('popupopen', () => {
+        document.querySelector(`.delete-popup[data-id="${photo.id}"]`)
+            ?.addEventListener('click', () => {
+                removePhoto(photo.id);
+                map.closePopup();
+            });
     });
 }
 
-// Управление боковой панелью на мобильных устройствах
+// Удаление фото
+function removePhoto(photoId) {
+    if (confirm('Вы уверены, что хотите удалить это фото?')) {
+        const photoIndex = currentPhotos.findIndex(p => p.id === photoId);
+        if (photoIndex !== -1) {
+            const photo = currentPhotos[photoIndex];
+            
+            // Удаляем маркер с карты
+            map.removeLayer(photo.marker);
+            
+            // Удаляем элемент из списка
+            photo.element.remove();
+            
+            // Удаляем из массива
+            currentPhotos.splice(photoIndex, 1);
+        }
+    }
+}
+
+// Конвертация EXIF координат
+function convertExifGps(coords, ref) {
+    const degrees = coords[0] + coords[1]/60 + coords[2]/3600;
+    return (ref === 'S' || ref === 'W') ? -degrees : degrees;
+}
+
+// Подсветка выбранного фото
+function highlightPhotoItem(item) {
+    document.querySelectorAll('.photo-item').forEach(i => {
+        i.style.background = 'white';
+    });
+    item.style.background = '#e6f7ff';
+}
+
+// Управление боковой панелью
 menuButton.addEventListener('click', () => {
     sidebar.classList.add('active');
 });
@@ -143,18 +164,21 @@ closeSidebar.addEventListener('click', () => {
     sidebar.classList.remove('active');
 });
 
-// Закрытие боковой панели при клике на карту (для мобильных)
 map.on('click', () => {
     if (window.innerWidth <= 768) {
         sidebar.classList.remove('active');
     }
 });
 
-// Адаптация при изменении размера окна
 window.addEventListener('resize', () => {
     if (window.innerWidth > 768) {
         sidebar.classList.add('active');
     } else {
         sidebar.classList.remove('active');
     }
+});
+
+// Открытие файлового диалога по кнопке
+uploadButton.addEventListener('click', () => {
+    photoUpload.click();
 });

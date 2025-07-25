@@ -157,3 +157,36 @@ body, html {
         left: 250px;
     }
 }
+
+/* Добавьте эти стили в конец файла */
+.delete-photo {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 25px;
+    height: 25px;
+    background: #ff4444;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.photo-item:hover .delete-photo {
+    opacity: 1;
+}
+
+.delete-photo:hover {
+    background: #cc0000;
+}
+
+.photo-item {
+    position: relative; /* Для позиционирования кнопки удаления */
+    padding-right: 30px; /* Чтобы текст не заезжал под кнопку */
+}
