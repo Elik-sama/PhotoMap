@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Карта с фотографиями</title>
+    <meta name="google-signin-client_id" content="375831769064-jsflqrvo30ntlae6avquaefmof203hui.apps.googleusercontent.com">
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client"></script>
+    <title>Фотокарта</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="styles.css" />
 </head>
@@ -19,19 +22,11 @@
     </div>
     
     <div id="map"></div>
-    
+    <button id="auth-button">Войти с Google</button>
     <button class="menu-button" id="menu-button">☰ Меню</button>
 
-    <!-- Firebase SDK -->
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-    
-    <!-- Карты и EXIF -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
-    
-    <!-- Основной скрипт -->
     <script src="script.js"></script>
 </body>
 </html>
