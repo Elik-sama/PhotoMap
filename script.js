@@ -182,3 +182,13 @@ window.addEventListener('resize', () => {
 uploadButton.addEventListener('click', () => {
     photoUpload.click();
 });
+
+  window.addEventListener('DOMContentLoaded', function () {
+    const link = document.querySelector('a[href="https://leafletjs.com"]');
+    if (link) {
+      const svg = link.querySelector('svg');
+      if (svg) {
+        svg.remove();
+      }
+    }
+  });
