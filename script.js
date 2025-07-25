@@ -8,7 +8,6 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 const uploadButton = document.getElementById('upload-button');
 const photoUpload = document.getElementById('photo-upload');
 const photoList = document.getElementById('photo-list');
-const sidebar = document.getElementById('sidebar');
 
 // Хранилище для фото и маркеров
 const photos = [];
@@ -38,8 +37,13 @@ photoUpload.addEventListener('change', function(e) {
                         const lat = convertExifGps(exifData.GPSLatitude, exifData.GPSLatitudeRef);
                         const lon = convertExifGps(exifData.GPSLongitude, exifData.GPSLongitudeRef);
                         
-                        // Добавление маркера и фото в список
-                        addPhoto(lat, lon, event.target.result, file.name);
+                        // Проверка на дубликаты
+                        if (!isDuplicatePhoto(lat, lon)) {
+                            // Добавление маркера и фото в список
+                            addPhoto(lat, lon, event.target.result, file.name);
+                        } else {
+                            alert(`Фото "${file.name}" не было добавлено, так как фото с такими координатами уже существует!`);
+                        }
                     } else {
                         alert(`Фото "${file.name}" не содержит геоданных!`);
                     }
@@ -52,6 +56,17 @@ photoUpload.addEventListener('change', function(e) {
         reader.readAsDataURL(file);
     }
 });
+
+// Проверка на дубликаты по координатам
+function isDuplicatePhoto(lat, lon) {
+    // Погрешность в 0.0001 градуса (~11 метров)
+    const precision = 0.0001;
+    
+    return photos.some(photo => {
+        return Math.abs(photo.lat - lat) < precision && 
+               Math.abs(photo.lon - lon) < precision;
+    });
+}
 
 // Конвертация EXIF GPS в десятичные градусы
 function convertExifGps(coords, ref) {

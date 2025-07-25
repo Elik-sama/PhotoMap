@@ -12,7 +12,6 @@ body, html {
     right: 0;
     top: 0;
     bottom: 0;
-    transition: left 0.3s;
 }
 
 .sidebar {
@@ -94,17 +93,4 @@ body, html {
     margin: 5px 0;
     font-size: 14px;
     color: #555;
-}
-
-.toggle-sidebar {
-    position: absolute;
-    left: 250px;
-    top: 10px;
-    z-index: 1001;
-    background: white;
-    border: none;
-    border-radius: 0 5px 5px 0;
-    padding: 5px 10px;
-    cursor: pointer;
-    box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
 }
