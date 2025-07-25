@@ -11,117 +11,41 @@ const photoList = document.getElementById('photo-list');
 const menuButton = document.getElementById('menu-button');
 const closeSidebar = document.getElementById('close-sidebar');
 const sidebar = document.getElementById('sidebar');
-const authButton = document.getElementById('auth-button');
 
-// Хранилище для фото
-let photos = [];
-let googleAccessToken = null;
-const FOLDER_NAME = "PhotoMap";
-let folderId = null;
+// Хранилище для фото и маркеров
+const photos = [];
 
-// Инициализация Google API
-function initGoogleAPI() {
-    gapi.load('client:auth2', async () => {
-        await gapi.client.init({
-            apiKey: 'AIzaSyB3PSacFD7k88wynsbSBLQgTLkg8-5eEsg',
-            clientId: '375831769064-jsflqrvo30ntlae6avquaefmof203hui.apps.googleusercontent.com',
-            discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
-            scope: 'https://www.googleapis.com/auth/drive.file'
-        });
-        
-        // Слушатель изменения статуса авторизации
-        gapi.auth2.getAuthInstance().isSignedIn.listen(updateSigninStatus);
-        updateSigninStatus(gapi.auth2.getAuthInstance().isSignedIn.get());
-    });
-}
-
-// Обновление статуса авторизации
-function updateSigninStatus(isSignedIn) {
-    if (isSignedIn) {
-        googleAccessToken = gapi.auth2.getAuthInstance().currentUser.get().getAuthResponse().access_token;
-        authButton.textContent = "Выйти из Google";
-        checkAndCreateFolder();
-    } else {
-        googleAccessToken = null;
-        authButton.textContent = "Войти с Google";
-    }
-}
-
-// Авторизация/выход
-function handleAuth() {
-    if (googleAccessToken) {
-        gapi.auth2.getAuthInstance().signOut();
-    } else {
-        gapi.auth2.getAuthInstance().signIn();
-    }
-}
-
-// Проверка и создание папки
-async function checkAndCreateFolder() {
-    try {
-        // Поиск существующей папки
-        const response = await gapi.client.drive.files.list({
-            q: `name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-            fields: 'files(id)'
-        });
-        
-        if (response.result.files.length > 0) {
-            folderId = response.result.files[0].id;
-        } else {
-            // Создание новой папки
-            const folder = await gapi.client.drive.files.create({
-                resource: {
-                    name: FOLDER_NAME,
-                    mimeType: 'application/vnd.google-apps.folder'
-                },
-                fields: 'id'
-            });
-            folderId = folder.result.id;
-        }
-        
-        loadPhotosFromDrive();
-    } catch (error) {
-        console.error("Ошибка при работе с папкой:", error);
-    }
-}
+// Открытие файлового диалога по кнопке
+uploadButton.addEventListener('click', () => {
+    photoUpload.click();
+});
 
 // Обработчик загрузки фото
-photoUpload.addEventListener('change', async function(e) {
-    if (!googleAccessToken) {
-        alert("Сначала войдите в Google Drive");
-        return;
-    }
-    
+photoUpload.addEventListener('change', function(e) {
     const files = e.target.files;
     
     for (const file of files) {
         const reader = new FileReader();
         
-        reader.onload = async function(event) {
+        reader.onload = function(event) {
             const img = new Image();
             
             img.onload = function() {
-                EXIF.getData(img, async function() {
+                // Чтение EXIF данных
+                EXIF.getData(img, function() {
                     const exifData = EXIF.getAllTags(this);
                     
                     if (exifData?.GPSLatitude && exifData?.GPSLongitude) {
+                        // Конвертация координат из EXIF в градусы
                         const lat = convertExifGps(exifData.GPSLatitude, exifData.GPSLatitudeRef);
                         const lon = convertExifGps(exifData.GPSLongitude, exifData.GPSLongitudeRef);
                         
-                        const photoData = {
-                            lat: lat,
-                            lon: lon,
-                            image: event.target.result.split(',')[1], // base64 без префикса
-                            name: file.name,
-                            timestamp: new Date().toISOString()
-                        };
-                        
-                        try {
-                            await savePhotoToDrive(photoData);
-                            addPhotoToUI(photoData);
-                        } catch (error) {
-                            console.error("Ошибка сохранения:", error);
-                            alert("Не удалось сохранить фото");
+                        // Проверка на дубликаты
+                        if (!isDuplicatePhoto(lat, lon)) {
+                            // Добавление маркера и фото в список
+                            addPhoto(lat, lon, event.target.result, file.name);
+                        } else {
+                            alert(`Фото "${file.name}" не было добавлено, так как фото с такими координатами уже существует!`);
                         }
                     } else {
                         alert(`Фото "${file.name}" не содержит геоданных!`);
@@ -136,154 +60,81 @@ photoUpload.addEventListener('change', async function(e) {
     }
 });
 
-// Сохранение фото в Google Drive
-async function savePhotoToDrive(photoData) {
-    const metadata = {
-        name: `photo_${Date.now()}.json`,
-        mimeType: 'application/json',
-        parents: [folderId]
-    };
-
-    const fileContent = JSON.stringify(photoData);
+// Проверка на дубликаты по координатам
+function isDuplicatePhoto(lat, lon) {
+    // Погрешность в 0.0001 градуса (~11 метров)
+    const precision = 0.0001;
     
-    const response = await gapi.client.drive.files.create({
-        resource: metadata,
-        media: {
-            mimeType: 'application/json',
-            body: fileContent
-        },
-        fields: 'id'
+    return photos.some(photo => {
+        return Math.abs(photo.lat - lat) < precision && 
+               Math.abs(photo.lon - lon) < precision;
     });
-    
-    return response.result.id;
 }
 
-// Загрузка фото из Google Drive
-async function loadPhotosFromDrive() {
-    try {
-        const response = await gapi.client.drive.files.list({
-            q: `'${folderId}' in parents and mimeType='application/json' and trashed=false`,
-            orderBy: 'createdTime desc',
-            fields: 'files(id,name)'
-        });
-        
-        // Очистка текущих данных
-        photos.forEach(photo => {
-            if (photo.marker) map.removeLayer(photo.marker);
-        });
-        photos = [];
-        photoList.innerHTML = '';
-        
-        // Загрузка каждого файла
-        for (const file of response.result.files) {
-            try {
-                const fileResponse = await gapi.client.drive.files.get({
-                    fileId: file.id,
-                    alt: 'media'
-                });
-                
-                const photo = fileResponse.result;
-                photo.id = file.id; // Сохраняем ID файла для удаления
-                addPhotoToUI(photo);
-            } catch (error) {
-                console.error(`Ошибка загрузки файла ${file.name}:`, error);
-            }
-        }
-    } catch (error) {
-        console.error("Ошибка загрузки фото:", error);
-    }
-}
-
-// Добавление фото в интерфейс
-function addPhotoToUI(photo) {
-    // Восстанавливаем base64 изображение
-    if (photo.image && !photo.url) {
-        photo.url = `data:image/jpeg;base64,${photo.image}`;
-    }
-    
-    // Добавляем на карту
-    const marker = L.marker([photo.lat, photo.lon], {
-        riseOnHover: true
-    }).addTo(map);
-    
-    marker.bindPopup(`
-        <div class="photo-popup">
-            <img src="${photo.url}" alt="${photo.name}">
-            <p>${photo.name}</p>
-            <p>Координаты: ${photo.lat.toFixed(6)}, ${photo.lon.toFixed(6)}</p>
-        </div>
-    `);
-    
-    photo.marker = marker;
-    
-    // Добавляем в список
-    const photoItem = document.createElement('div');
-    photoItem.className = 'photo-item';
-    photoItem.dataset.id = photo.id;
-    
-    photoItem.innerHTML = `
-        <img src="${photo.url}" alt="${photo.name}">
-        <div class="photo-info">
-            <p>${photo.name}</p>
-            <p>Координаты: ${photo.lat.toFixed(6)}, ${photo.lon.toFixed(6)}</p>
-        </div>
-        <button class="delete-photo" title="Удалить фото">×</button>
-    `;
-    
-    // Обработчики событий
-    photoItem.querySelector('.photo-info').addEventListener('click', () => {
-        map.setView([photo.lat, photo.lon], 15);
-        marker.openPopup();
-        highlightPhotoItem(photoItem);
-        
-        if (window.innerWidth <= 768) {
-            sidebar.classList.remove('active');
-        }
-    });
-    
-    photoItem.querySelector('.delete-photo').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        await deletePhoto(photo.id, marker, photoItem);
-    });
-    
-    photoList.appendChild(photoItem);
-    photos.push(photo);
-}
-
-// Удаление фото
-async function deletePhoto(fileId, marker, photoItem) {
-    if (confirm('Вы уверены, что хотите удалить это фото?')) {
-        try {
-            await gapi.client.drive.files.delete({
-                fileId: fileId
-            });
-            
-            map.removeLayer(marker);
-            photoItem.remove();
-            
-            // Удаляем из массива photos
-            photos = photos.filter(p => p.id !== fileId);
-        } catch (error) {
-            console.error("Ошибка удаления:", error);
-            alert("Не удалось удалить фото");
-        }
-    }
-}
-
-// Вспомогательные функции
+// Конвертация EXIF GPS в десятичные градусы
 function convertExifGps(coords, ref) {
     const degrees = coords[0] + coords[1]/60 + coords[2]/3600;
     return (ref === 'S' || ref === 'W') ? -degrees : degrees;
 }
 
-function highlightPhotoItem(item) {
-    document.querySelectorAll('.photo-item').forEach(i => {
-        i.style.background = 'white';
+// Добавление фото на карту и в список
+function addPhoto(lat, lon, photoUrl, fileName) {
+    // Создаем уникальный ID для фото
+    const photoId = 'photo-' + Date.now();
+    
+    // Добавляем маркер на карту
+    const marker = L.marker([lat, lon], { 
+        photoId: photoId,
+        riseOnHover: true
+    }).addTo(map);
+    
+    marker.bindPopup(`
+        <div class="photo-popup">
+            <img src="${photoUrl}" alt="${fileName}">
+            <p>Координаты: ${lat.toFixed(6)}, ${lon.toFixed(6)}</p>
+        </div>
+    `);
+    
+    // Добавляем фото в боковую панель
+    const photoItem = document.createElement('div');
+    photoItem.className = 'photo-item';
+    photoItem.id = photoId;
+    photoItem.innerHTML = `
+        <img src="${photoUrl}" alt="${fileName}">
+        <p>${fileName}</p>
+        <p>Координаты: ${lat.toFixed(6)}, ${lon.toFixed(6)}</p>
+    `;
+    
+    // При клике на фото в списке - центрируем карту на этом месте
+    photoItem.addEventListener('click', () => {
+        map.setView([lat, lon], 15);
+        marker.openPopup();
+        // Подсвечиваем выбранный элемент
+        document.querySelectorAll('.photo-item').forEach(item => {
+            item.style.background = 'white';
+        });
+        photoItem.style.background = '#e6f7ff';
+        
+        // На мобильных устройствах скрываем боковую панель после выбора
+        if (window.innerWidth <= 768) {
+            sidebar.classList.remove('active');
+        }
     });
-    item.style.background = '#e6f7ff';
+    
+    photoList.appendChild(photoItem);
+    
+    // Сохраняем данные о фото
+    photos.push({
+        id: photoId,
+        lat: lat,
+        lon: lon,
+        url: photoUrl,
+        name: fileName,
+        marker: marker
+    });
 }
 
-// Управление боковой панелью
+// Управление боковой панелью на мобильных устройствах
 menuButton.addEventListener('click', () => {
     sidebar.classList.add('active');
 });
@@ -292,12 +143,14 @@ closeSidebar.addEventListener('click', () => {
     sidebar.classList.remove('active');
 });
 
+// Закрытие боковой панели при клике на карту (для мобильных)
 map.on('click', () => {
     if (window.innerWidth <= 768) {
         sidebar.classList.remove('active');
     }
 });
 
+// Адаптация при изменении размера окна
 window.addEventListener('resize', () => {
     if (window.innerWidth > 768) {
         sidebar.classList.add('active');
@@ -305,9 +158,3 @@ window.addEventListener('resize', () => {
         sidebar.classList.remove('active');
     }
 });
-
-// Инициализация при загрузке
-window.onload = function() {
-    initGoogleAPI();
-    authButton.addEventListener('click', handleAuth);
-};
