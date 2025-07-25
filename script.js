@@ -1,3 +1,18 @@
+// Конфигурация Firebase (замените на свою)
+const firebaseConfig = {
+    apiKey: "AIzaSyAu_Fea9dcRVJ6E_P99ZfJWfopvCHUS-OA",
+    authDomain: "photomap-7e448.firebaseapp.com",
+    projectId: "photomap-7e448",
+    storageBucket: "photomap-7e448.firebasestorage.app",
+    messagingSenderId: "1062239241547",
+    appId: "1:1062239241547:web:1183053cf718f74c2554ce"
+};
+
+// Инициализация Firebase
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const auth = firebase.auth();
+
 // Инициализация карты (центр - Екатеринбург)
 const map = L.map('map').setView([56.845, 60.609], 12);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -12,13 +27,34 @@ const menuButton = document.getElementById('menu-button');
 const closeSidebar = document.getElementById('close-sidebar');
 const sidebar = document.getElementById('sidebar');
 
-// Хранилище для фото и маркеров
-const photos = [];
+// Хранилище для фото
+let photos = [];
 
-// Открытие файлового диалога по кнопке
-uploadButton.addEventListener('click', () => {
-    photoUpload.click();
-});
+// Аутентификация анонимного пользователя
+auth.signInAnonymously()
+    .then(() => loadPhotos())
+    .catch(error => console.error("Auth error:", error));
+
+// Загрузка фото из Firestore
+function loadPhotos() {
+    db.collection("photos").orderBy("timestamp", "desc")
+        .onSnapshot(snapshot => {
+            // Удаляем старые маркеры
+            photos.forEach(photo => {
+                if (photo.marker) map.removeLayer(photo.marker);
+            });
+            photos = [];
+            photoList.innerHTML = '';
+            
+            // Добавляем новые фото
+            snapshot.forEach(doc => {
+                const photo = doc.data();
+                addPhotoToMap(photo);
+                addPhotoToList(photo);
+                photos.push(photo);
+            });
+        });
+}
 
 // Обработчик загрузки фото
 photoUpload.addEventListener('change', function(e) {
@@ -31,22 +67,20 @@ photoUpload.addEventListener('change', function(e) {
             const img = new Image();
             
             img.onload = function() {
-                // Чтение EXIF данных
                 EXIF.getData(img, function() {
                     const exifData = EXIF.getAllTags(this);
                     
                     if (exifData?.GPSLatitude && exifData?.GPSLongitude) {
-                        // Конвертация координат из EXIF в градусы
                         const lat = convertExifGps(exifData.GPSLatitude, exifData.GPSLatitudeRef);
                         const lon = convertExifGps(exifData.GPSLongitude, exifData.GPSLongitudeRef);
                         
-                        // Проверка на дубликаты
-                        if (!isDuplicatePhoto(lat, lon)) {
-                            // Добавление маркера и фото в список
-                            addPhoto(lat, lon, event.target.result, file.name);
-                        } else {
-                            alert(`Фото "${file.name}" не было добавлено, так как фото с такими координатами уже существует!`);
-                        }
+                        savePhotoToFirestore({
+                            lat: lat,
+                            lon: lon,
+                            url: event.target.result,
+                            name: file.name,
+                            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                        });
                     } else {
                         alert(`Фото "${file.name}" не содержит геоданных!`);
                     }
@@ -60,81 +94,66 @@ photoUpload.addEventListener('change', function(e) {
     }
 });
 
-// Проверка на дубликаты по координатам
-function isDuplicatePhoto(lat, lon) {
-    // Погрешность в 0.0001 градуса (~11 метров)
-    const precision = 0.0001;
-    
-    return photos.some(photo => {
-        return Math.abs(photo.lat - lat) < precision && 
-               Math.abs(photo.lon - lon) < precision;
-    });
+// Сохранение фото в Firestore
+function savePhotoToFirestore(photo) {
+    db.collection("photos").add(photo)
+        .catch(error => console.error("Error adding photo:", error));
 }
 
-// Конвертация EXIF GPS в десятичные градусы
-function convertExifGps(coords, ref) {
-    const degrees = coords[0] + coords[1]/60 + coords[2]/3600;
-    return (ref === 'S' || ref === 'W') ? -degrees : degrees;
-}
-
-// Добавление фото на карту и в список
-function addPhoto(lat, lon, photoUrl, fileName) {
-    // Создаем уникальный ID для фото
-    const photoId = 'photo-' + Date.now();
-    
-    // Добавляем маркер на карту
-    const marker = L.marker([lat, lon], { 
-        photoId: photoId,
+// Добавление фото на карту
+function addPhotoToMap(photo) {
+    const marker = L.marker([photo.lat, photo.lon], {
         riseOnHover: true
     }).addTo(map);
     
     marker.bindPopup(`
         <div class="photo-popup">
-            <img src="${photoUrl}" alt="${fileName}">
-            <p>Координаты: ${lat.toFixed(6)}, ${lon.toFixed(6)}</p>
+            <img src="${photo.url}" alt="${photo.name}">
+            <p>Координаты: ${photo.lat.toFixed(6)}, ${photo.lon.toFixed(6)}</p>
         </div>
     `);
     
-    // Добавляем фото в боковую панель
+    photo.marker = marker;
+}
+
+// Добавление фото в список
+function addPhotoToList(photo) {
     const photoItem = document.createElement('div');
     photoItem.className = 'photo-item';
-    photoItem.id = photoId;
     photoItem.innerHTML = `
-        <img src="${photoUrl}" alt="${fileName}">
-        <p>${fileName}</p>
-        <p>Координаты: ${lat.toFixed(6)}, ${lon.toFixed(6)}</p>
+        <img src="${photo.url}" alt="${photo.name}">
+        <p>${photo.name}</p>
+        <p>Координаты: ${photo.lat.toFixed(6)}, ${photo.lon.toFixed(6)}</p>
     `;
     
-    // При клике на фото в списке - центрируем карту на этом месте
     photoItem.addEventListener('click', () => {
-        map.setView([lat, lon], 15);
-        marker.openPopup();
-        // Подсвечиваем выбранный элемент
-        document.querySelectorAll('.photo-item').forEach(item => {
-            item.style.background = 'white';
-        });
-        photoItem.style.background = '#e6f7ff';
+        map.setView([photo.lat, photo.lon], 15);
+        photo.marker.openPopup();
+        highlightPhotoItem(photoItem);
         
-        // На мобильных устройствах скрываем боковую панель после выбора
         if (window.innerWidth <= 768) {
             sidebar.classList.remove('active');
         }
     });
     
     photoList.appendChild(photoItem);
-    
-    // Сохраняем данные о фото
-    photos.push({
-        id: photoId,
-        lat: lat,
-        lon: lon,
-        url: photoUrl,
-        name: fileName,
-        marker: marker
-    });
 }
 
-// Управление боковой панелью на мобильных устройствах
+// Подсветка выбранного фото
+function highlightPhotoItem(item) {
+    document.querySelectorAll('.photo-item').forEach(i => {
+        i.style.background = 'white';
+    });
+    item.style.background = '#e6f7ff';
+}
+
+// Конвертация EXIF координат
+function convertExifGps(coords, ref) {
+    const degrees = coords[0] + coords[1]/60 + coords[2]/3600;
+    return (ref === 'S' || ref === 'W') ? -degrees : degrees;
+}
+
+// Управление боковой панелью
 menuButton.addEventListener('click', () => {
     sidebar.classList.add('active');
 });
@@ -143,14 +162,12 @@ closeSidebar.addEventListener('click', () => {
     sidebar.classList.remove('active');
 });
 
-// Закрытие боковой панели при клике на карту (для мобильных)
 map.on('click', () => {
     if (window.innerWidth <= 768) {
         sidebar.classList.remove('active');
     }
 });
 
-// Адаптация при изменении размера окна
 window.addEventListener('resize', () => {
     if (window.innerWidth > 768) {
         sidebar.classList.add('active');
